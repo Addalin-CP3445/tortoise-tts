@@ -7,24 +7,32 @@ from tortoise.models.autoregressive import UnifiedVoice
 # from tortoise.utils.tokenizer import VoiceBpeTokenizer
 from transformers import AutoTokenizer
 import torchaudio.transforms as T
+from torchaudio.pipelines import HUBERT_BASE
 
 # Load Arabic tokenizer
 tokenizer_ar = AutoTokenizer.from_pretrained("CAMeL-Lab/bert-base-arabic-camelbert-da")
+
+#Load encoder
+hubert_model = HUBERT_BASE.get_model().eval()
 
 # Initialize models
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 autoregressive_model = UnifiedVoice(max_mel_tokens=604, max_text_tokens=402, max_conditioning_inputs=2, layers=30,
                                           model_dim=1024, heads=16, number_text_tokens=255, start_text_token=255,
-                                          checkpointing=False, train_solo_embeddings=False).to(device)
+                                          checkpointing=False, train_solo_embeddings=False)
 
 diffusion_model = DiffusionTts(model_channels=1024, num_layers=10, in_channels=100, out_channels=200,
                                           in_latent_channels=1024, in_tokens=8193, dropout=0, use_fp16=False,
-                                          num_heads=16, layer_drop=0, unconditioned_percentage=0).to(device)
+                                          num_heads=16, layer_drop=0, unconditioned_percentage=0)
 
 # Load pre-trained weights properly
 autoregressive_model.load_state_dict(torch.load("tortoise/models/autoregressive.pth", map_location=device), strict=False)
 diffusion_model.load_state_dict(torch.load("tortoise/models/diffusion_decoder.pth", map_location=device))
+
+#move models to GPU
+autoregressive_model.to(device)
+diffusion_model.to(device)
 
 # Set models to training mode
 autoregressive_model.train()
@@ -58,6 +66,7 @@ class ArabicTTSDataset(Dataset):
 
         # Load audio
         waveform, sr = torchaudio.load(os.path.join(self.audio_dir, audio_path))
+        waveform = torchaudio.transforms.Resample(sr, 16000)(waveform)  # Convert to 16kHz
 
         # Convert to mel spectrogram
         mel_transform = T.MelSpectrogram(
@@ -72,9 +81,12 @@ class ArabicTTSDataset(Dataset):
         mel_spec = (mel_spec - mel_spec.mean()) / (mel_spec.std() + 1e-6)
 
         # Tokenize and pad text
-        tokenized_text = self.tokenizer.encode(text, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt")
+        tokenized_text = self.tokenizer.encode(text, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt").squeeze(0)
 
-        return tokenized_text.squeeze(0), mel_spec  # Remove batch dimension
+        with torch.no_grad():
+                mel_codes = hubert_model(waveform).last_hidden_state
+
+        return tokenized_text, mel_codes, mel_spec 
 
 # Load dataset
 dataset = ArabicTTSDataset("tortoise/arabic-speech-corpus/arabic-speech-corpus/orthographic-transcript.csv", 
@@ -94,13 +106,13 @@ num_epochs = 10
 for epoch in range(num_epochs):
     total_loss = 0  
 
-    for text_tokens, mel_spec in train_loader:
-        text_tokens, mel_spec = text_tokens.to(device), mel_spec.to(device)
+    for text_tokens, mel_codes, mel_spec in train_loader:
+        text_tokens, mel_codes, mel_spec = text_tokens.to(device), mel_codes.to(device), mel_spec.to(device)
 
         optimizer.zero_grad()
 
         # Step 1: Autoregressive model predicts mel spectrogram
-        predicted_mel = autoregressive_model(text_tokens)
+        predicted_mel = autoregressive_model(text_tokens, text_lengths=None, mel_codes=mel_codes, wav_lengths=None)
 
         # Step 2: Diffusion model refines the predicted mel spectrogram into final output
         predicted_audio = diffusion_model(predicted_mel)
