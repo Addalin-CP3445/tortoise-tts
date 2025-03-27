@@ -28,7 +28,7 @@ class ArabicTTSDataset(Dataset):
         return text_tokens, audio_tensor
 
 # Load dataset
-dataset = ArabicTTSDataset("orthographic-transcript.csv", "dataset/audio", VoiceBpeTokenizer())
+dataset = ArabicTTSDataset("orthographic-transcript.csv", "wav", VoiceBpeTokenizer())
 
 train_loader = DataLoader(dataset, batch_size=4, shuffle=True)
 
@@ -36,8 +36,8 @@ train_loader = DataLoader(dataset, batch_size=4, shuffle=True)
 autoregressive_model = Autoregressive()
 diffusion_model = DiffusionTTS()
 
-autoregressive_model.load_state_dict(torch.load("models/autoregressive.pth"))
-diffusion_model.load_state_dict(torch.load("models/diffusion_decoder.pth"))
+autoregressive_model.load_state_dict(torch.load("../../models/autoregressive.pth"))
+diffusion_model.load_state_dict(torch.load("../../models/diffusion_decoder.pth"))
 
 # Move to GPU if available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -63,4 +63,4 @@ for epoch in range(num_epochs):
     print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}")
 
 # Save fine-tuned model
-torch.save(autoregressive_model.state_dict(), "models/autoregressive_finetuned.pth")
+torch.save(autoregressive_model.state_dict(), "../../models/autoregressive_finetuned.pth")
