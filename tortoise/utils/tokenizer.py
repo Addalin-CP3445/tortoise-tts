@@ -9,6 +9,10 @@ from tokenizers import Tokenizer
 # Regular expression matching whitespace:
 from unidecode import unidecode
 
+from farasa.segmenter import FarasaSegmenter
+
+farasa_segmenter = FarasaSegmenter(interactive=True)
+
 _whitespace_re = re.compile(r'\s+')
 
 
@@ -33,6 +37,21 @@ _abbreviations = [(re.compile('\\b%s\\.' % x[0], re.IGNORECASE), x[1]) for x in 
   ('col', 'colonel'),
   ('ft', 'fort'),
 ]]
+
+def convert_arabic_numbers(text):
+    arabic_digits = "٠١٢٣٤٥٦٧٨٩"
+    western_digits = "0123456789"
+    translation_table = str.maketrans(arabic_digits, western_digits)
+    return text.translate(translation_table)
+
+
+def arabic_cleaners(text):
+    """Basic Arabic text cleaning: tokenization and normalization."""
+    text = re.sub(r'[^\w\s؟.!،]', '', text)  # Remove non-word characters except punctuation
+    text = farasa_segmenter.segment(text)  # Arabic tokenization
+    text = convert_arabic_numbers(text)
+    text = collapse_whitespace(text)  # Remove extra spaces
+    return text
 
 
 def expand_abbreviations(text):
@@ -83,19 +102,20 @@ def _expand_ordinal(m):
   return _inflect.number_to_words(m.group(0))
 
 
-def _expand_number(m):
-  num = int(m.group(0))
-  if num > 1000 and num < 3000:
-    if num == 2000:
-      return 'two thousand'
-    elif num > 2000 and num < 2010:
-      return 'two thousand ' + _inflect.number_to_words(num % 100)
-    elif num % 100 == 0:
-      return _inflect.number_to_words(num // 100) + ' hundred'
-    else:
-      return _inflect.number_to_words(num, andword='', zero='oh', group=2).replace(', ', ' ')
-  else:
-    return _inflect.number_to_words(num, andword='')
+# def _expand_number(m):
+#   num = int(m.group(0))
+#   if num > 1000 and num < 3000:
+#     if num == 2000:
+#       return 'two thousand'
+#     elif num > 2000 and num < 2010:
+#       return 'two thousand ' + _inflect.number_to_words(num % 100)
+#     elif num % 100 == 0:
+#       return _inflect.number_to_words(num // 100) + ' hundred'
+#     else:
+#       return _inflect.number_to_words(num, andword='', zero='oh', group=2).replace(', ', ' ')
+#   else:
+#     return _inflect.number_to_words(num, andword='')
+
 
 
 def normalize_numbers(text):
@@ -177,7 +197,7 @@ class VoiceBpeTokenizer:
         if use_basic_cleaners:
             self.preprocess_text = basic_cleaners
         else:
-            self.preprocess_text = english_cleaners
+            self.preprocess_text = arabic_cleaners
 
     def encode(self, txt):
         txt = self.preprocess_text(txt)

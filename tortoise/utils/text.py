@@ -49,11 +49,11 @@ def split_and_recombine_text(text, desired_length=200, max_length=300):
                 seek(-d)
             else:
                 # no full sentences, seek back until we are not in the middle of a word and split there
-                while c not in '!?.\n ' and pos > 0 and len(current) > desired_length:
+                while c not in '!؟\n ' and pos > 0 and len(current) > desired_length:
                     c = seek(-1)
             commit()
         # check for sentence boundaries
-        elif not in_quote and (c in '!?\n' or (c == '.' and peek(1) in '\n ')):
+        elif not in_quote and (c in '!؟\n' or (c == '.' and peek(1) in '\n ')):
             # seek forward if we have consecutive boundary markers but still within the max length
             while pos < len(text) - 1 and len(current) < max_length and peek(1) in '!?.':
                 c = seek(1)
