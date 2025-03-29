@@ -8,6 +8,7 @@ from tortoise.models.autoregressive import UnifiedVoice
 from transformers import AutoTokenizer
 import torchaudio.transforms as T
 from torchaudio.pipelines import HUBERT_BASE
+import torch.nn.functional as F
 
 # Load Arabic tokenizer
 tokenizer_ar = AutoTokenizer.from_pretrained("CAMeL-Lab/bert-base-arabic-camelbert-da")
@@ -68,6 +69,18 @@ class ArabicTTSDataset(Dataset):
         waveform, sr = torchaudio.load(os.path.join(self.audio_dir, audio_path))
         waveform = torchaudio.transforms.Resample(sr, 16000)(waveform)  # Convert to 16kHz
 
+        # Convert to a fixed duration (pad or trim)
+        target_samples = int(self.target_duration * sr)  # Convert sec → samples
+        num_samples = waveform.shape[1]
+
+        if num_samples < target_samples:
+            # Pad with silence
+            pad_amount = target_samples - num_samples
+            waveform = F.pad(waveform, (0, pad_amount))
+        else:
+            # Trim extra audio
+            waveform = waveform[:, :target_samples]
+
         # Convert to mel spectrogram
         mel_transform = T.MelSpectrogram(
             sample_rate=sr,
@@ -84,7 +97,7 @@ class ArabicTTSDataset(Dataset):
         tokenized_text = self.tokenizer.encode(text, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt").squeeze(0)
 
         with torch.no_grad():
-                mel_codes = hubert_model(waveform).last_hidden_state
+                mel_codes = hubert_model(waveform)[0]
 
         return tokenized_text, mel_codes, mel_spec 
 
